@@ -3,9 +3,6 @@ package hive
 import (
 	"bufio"
 	"fmt"
-	"github.com/eaciit/cast"
-	"github.com/eaciit/errorlib"
-	"github.com/eaciit/toolkit"
 	"log"
 	"os"
 	"os/user"
@@ -13,22 +10,31 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/eaciit/cast"
+	"github.com/eaciit/errorlib"
+	"github.com/eaciit/toolkit"
 )
 
 const (
-	BEE_TEMPLATE  = "%sbeeline -u jdbc:hive2://%s/%s"
+	BEE_TEMPLATE  = "-classpath %s org.apache.hive.beeline.BeeLine -u jdbc:hive2://%s/%s"
 	BEE_USER      = " -n %s"
 	BEE_PASSWORD  = " -p %s"
 	BEE_QUERY     = " -e \"%s\""
 	PACKAGENAME   = "Hive"
-	CSV_FORMAT    = " --outputFormat=csv"
-	TSV_FORMAT    = " --outputFormat=tsv"
+	CSV_FORMAT    = "--outputFormat=csv"
+	TSV_FORMAT    = "--outputFormat=tsv"
 	DSV_FORMAT    = " --outputFormat=dsv --delimiterForDSV=|\t"
 	DSV_DELIMITER = "|\t"
 	TSV           = "tsv"
 	CSV           = "csv"
 	JSON          = "json"
 )
+
+/**
+ * CHANGE THIS VARIABLE ACCORDING TO YOUR OWN OS SETUP
+ */
+var DEFAULT_CLASSPATH = "/usr/lib/hive/lib/*:/usr/lib/hadoop/client/*"
 
 type FnHiveReceive func(HiveResult) error
 
@@ -45,7 +51,12 @@ type Hive struct {
 
 func HiveConfig(server, dbName, userid, password, path string, delimiter ...string) *Hive {
 	hv := Hive{}
-	hv.BeePath = path
+	if path == "" {
+		hv.BeePath = DEFAULT_CLASSPATH
+	} else {
+		hv.BeePath = path
+	}
+
 	hv.Server = server
 	hv.Password = password
 
@@ -72,15 +83,24 @@ func HiveConfig(server, dbName, userid, password, path string, delimiter ...stri
 		hv.OutputType = CSV
 		hv.Conn.OutputType = TSV
 	}
+	hv.Conn.ConnParam = []string{"-classpath", hv.BeePath, "org.apache.hive.beeline.BeeLine", "-u", fmt.Sprintf("jdbc:hive2://%s/%s", hv.Server, hv.DBName)}
 
-	if hv.Conn.Cmd == nil {
-		if hv.OutputType == CSV {
-			hv.Conn.CmdStr = hv.cmdStr(CSV_FORMAT)
-		} else {
-			hv.Conn.CmdStr = hv.cmdStr(TSV_FORMAT)
-		}
+	if hv.User != "" {
+		hv.Conn.ConnParam = append(hv.Conn.ConnParam, "-n", hv.User) //fmt.Sprintf(BEE_USER, hv.User)
 	}
 
+	if hv.Password != "" {
+		//out += fmt.Sprintf(BEE_PASSWORD, hv.Password)
+		hv.Conn.ConnParam = append(hv.Conn.ConnParam, "-p", hv.Password)
+	}
+	if hv.OutputType == CSV {
+		hv.Conn.CmdStr = hv.cmdStr(CSV_FORMAT)
+		hv.Conn.ConnParam = append(hv.Conn.ConnParam, CSV_FORMAT)
+	} else {
+		hv.Conn.CmdStr = hv.cmdStr(TSV_FORMAT)
+		hv.Conn.ConnParam = append(hv.Conn.ConnParam, TSV_FORMAT)
+	}
+	//hv.Conn.CmdStr = ""
 	return &hv
 }
 

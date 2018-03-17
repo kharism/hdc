@@ -3,8 +3,11 @@ package hive
 import (
 	"bufio"
 	"errors"
-	"github.com/eaciit/errorlib"
+	"fmt"
 	"io"
+	"io/ioutil"
+
+	"github.com/eaciit/errorlib"
 	// "log"
 	"os/exec"
 	"strings"
@@ -18,24 +21,30 @@ const (
 )
 
 type DuplexTerm struct {
-	Writer     *bufio.Writer
-	Reader     *bufio.Reader
-	Cmd        *exec.Cmd
-	CmdStr     string
-	Stdin      io.WriteCloser
-	Stdout     io.ReadCloser
-	FnReceive  FnHiveReceive
-	OutputType string
-	DateFormat string
+	Writer      *bufio.Writer
+	Reader      *bufio.Reader
+	ErrorReader *bufio.Reader
+	Cmd         *exec.Cmd
+	CmdStr      string
+	Stdin       io.WriteCloser
+	Stdout      io.ReadCloser
+	Stderr      io.ReadCloser
+	FnReceive   FnHiveReceive
+	ConnParam   []string
+	OutputType  string
+	DateFormat  string
 }
 
 var hr HiveResult
 
 func (d *DuplexTerm) Open() (e error) {
-	if d.CmdStr != "" {
-		arg := append([]string{"-c"}, d.CmdStr)
-		d.Cmd = exec.Command("sh", arg...)
-
+	if len(d.ConnParam) >= 4 {
+		//arg := append([]string{"-c"}, d.CmdStr)
+		//arg := strings.Split(d.CmdStr, " ")
+		arg := append([]string{"-Djline.WindowsTerminal.directConsole=false"}, d.ConnParam...)
+		fmt.Println("java", arg)
+		d.Cmd = exec.Command("java", arg...)
+		//d.Cmd.Stdin = strings.NewReader("show tables;\n!quit\n")
 		if d.Stdin, e = d.Cmd.StdinPipe(); e != nil {
 			return
 		}
@@ -43,9 +52,13 @@ func (d *DuplexTerm) Open() (e error) {
 		if d.Stdout, e = d.Cmd.StdoutPipe(); e != nil {
 			return
 		}
+		if d.Stderr, e = d.Cmd.StderrPipe(); e != nil {
+			return
+		}
 
 		d.Writer = bufio.NewWriter(d.Stdin)
 		d.Reader = bufio.NewReader(d.Stdout)
+		d.ErrorReader = bufio.NewReader(d.Stderr)
 		d.FnReceive = nil
 		e = d.Cmd.Start()
 	} else {
@@ -106,6 +119,13 @@ func (d *DuplexTerm) SendInput(input string) (res HiveResult, err error) {
 			err = errors.New("Writing only 0 byte")
 		} else {
 			err = d.Writer.Flush()
+		}
+		if err != nil {
+			fmt.Println(err.Error())
+			buff, errstream := ioutil.ReadAll(d.ErrorReader)
+			if errstream == nil {
+				fmt.Println("FROM STDERR", string(buff))
+			}
 		}
 		if err == nil && d.FnReceive == nil {
 			done := make(chan bool)
